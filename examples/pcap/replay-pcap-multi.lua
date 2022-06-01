@@ -93,11 +93,46 @@ function replay(queue,
    local mempool = memory:createMemPool(4096)
    local bufs = mempool:bufArray()
    local pcapFile = pcap:newReader(file)
-   local prev = 0
-   local transmissions = 0
    local linkSpeed = queue.dev:getLinkStatus().speed
+   local transmissions = 0
    log:info("Replaying %s on %s", file, queue.dev)
    log:info("Link speed %s for %s", linkSpeed, queue.dev)
+
+   while mg.running() do
+      replayonce(queue, file, rateLimiter, multiplier, bufs, pcapFile, linkSpeed)
+
+      transmissions = transmissions + 1
+      if loop then
+         pcapFile:reset()
+         log:info("%s exhausted, starting %d transmission on %s",
+                  file, transmissions + 1, queue.dev)
+      elseif transmissions < repetitions then
+         pcapFile:reset()
+         log:info("%s exhausted, starting %d (of %d transmissions) on %s",
+                  file, transmissions + 1, repetitions, queue.dev)
+      else
+         break
+      end
+   end
+
+   log:info("Replay on %s: Enqueued all packets,"
+            .. " waiting %d seconds for queues to flush",
+            queue.dev,
+            sleepTime)
+   mg.sleepMillisIdle(sleepTime * 1000)
+   pcapFile:close()
+end
+
+
+
+function replayonce(queue,
+                    file,
+                    rateLimiter,
+                    multiplier,
+                    bufs,
+                    pcapFile,
+                    linkSpeed)
+   local prev = 0
 
    while mg.running() do
       local n = pcapFile:read(bufs)
@@ -121,20 +156,7 @@ function replay(queue,
             end
          end
       else
-         transmissions = transmissions + 1
-         if loop then
-            prev = 0
-            pcapFile:reset()
-            log:info("%s exhausted, starting %d retransmission on %s",
-                     file, transmissions, queue.dev)
-         elseif transmissions < repetitions then
-            prev = 0
-            pcapFile:reset()
-            log:info("%s exhausted, starting %d/%d retransmission on %s",
-                     file, transmissions, repetitions, queue.dev)
-         else
-            break
-         end
+         break
       end
       if rateLimiter then
          rateLimiter:sendN(bufs, n)
@@ -142,11 +164,4 @@ function replay(queue,
          queue:sendN(bufs, n)
       end
    end
-
-   log:info("Replay on %s: Enqueued all packets,"
-            .. " waiting %d seconds for queues to flush",
-            queue.dev,
-            sleepTime)
-   mg.sleepMillisIdle(sleepTime * 1000)
-   pcapFile:close()
 end
