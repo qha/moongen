@@ -22,7 +22,6 @@ local ip4 = require "proto.ip4"
 local tcp = require "proto.tcp"
 local ntoh, hton = ntoh, hton
 
-
 function configure(parser)
    parser:option("--dev", "Device to use.")
       :args(1)
@@ -137,24 +136,28 @@ function replayonce(queue,
                     pcapFile,
                     linkSpeed,
                     transmission)
-   local seqackincrement = 13000
-   local uint32max = 0xffffffff
+   local uint16max = 0xffff
    local prev = 0
 
    while mg.running() do
       local n = pcapFile:read(bufs)
 
       if n > 0 then
-         -- Fudge sequence and acknowlegement numbers.
+         -- Fudge ephemeral port.
          for i = 1, n do
             local buf = bufs[i]
             local pkt = buf:getTcp4Packet()
             if pkt.ip4:getProtocol() == ip4.PROTO_TCP then
-               pkt.tcp.seq = hton((pkt.tcp:getSeqNumber() + transmission * seqackincrement)
-                     % uint32max)
-               pkt.tcp.ack = hton((pkt.tcp:getAckNumber() + transmission * seqackincrement)
-                     % uint32max)
+               if pkt.tcp:getSrcPort() == 443 then
+                  pkt.tcp:setDstPort((pkt.tcp:getDstPort() - transmission)
+                        % uint16max)
+               elseif pkt.tcp:getDstPort() == 443 then
+                  pkt.tcp:setSrcPort((pkt.tcp:getSrcPort() - transmission)
+                        % uint16max)
+               end
             end
+            -- print(pkt.tcp:getString())
+            buf:offloadTcpChecksum()
          end
 
          if rateLimiter ~= nil then
