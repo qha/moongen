@@ -18,6 +18,10 @@ local log = require "log"
 local pcap = require "pcap"
 local limiter = require "software-ratecontrol"
 
+local ip4 = require "proto.ip4"
+local tcp = require "proto.tcp"
+local ntoh, hton = ntoh, hton
+
 
 function configure(parser)
    parser:option("--dev", "Device to use.")
@@ -43,8 +47,8 @@ function configure(parser)
       :convert(tonumber)
       :target("bufferFlushTime")
    parser:flag("-l --loop", "Repeat pcap files until interrupted.")
-   parser:option("-n --repetitions",
-                 "Repeat pcap files this number of times")
+   parser:option("-i --iterations",
+                 "Send pcap files this number of times")
       :default(1)
       :convert(tonumber)
    local args = parser:parse()
@@ -70,7 +74,7 @@ function master(args)
                                 dev:getTxQueue(0),
                                 args.files[ii],
                                 args.loop,
-                                args.repetitions,
+                                args.iterations,
                                 rateLimiters[ii],
                                 args.rateMultiplier,
                                 args.bufferFlushTime))
@@ -86,7 +90,7 @@ end
 function replay(queue,
                 file,
                 loop,
-                repetitions,
+                iterations,
                 rateLimiter,
                 multiplier,
                 sleepTime)
@@ -94,22 +98,22 @@ function replay(queue,
    local bufs = mempool:bufArray()
    local pcapFile = pcap:newReader(file)
    local linkSpeed = queue.dev:getLinkStatus().speed
-   local transmissions = 0
+   local transmission = 0
    log:info("Replaying %s on %s", file, queue.dev)
    log:info("Link speed %s for %s", linkSpeed, queue.dev)
 
    while mg.running() do
-      replayonce(queue, file, rateLimiter, multiplier, bufs, pcapFile, linkSpeed)
+      replayonce(queue, file, rateLimiter, multiplier, bufs, pcapFile, linkSpeed, transmission)
 
-      transmissions = transmissions + 1
+      transmission = transmission + 1
       if loop then
          pcapFile:reset()
          log:info("%s exhausted, starting %d transmission on %s",
-                  file, transmissions + 1, queue.dev)
-      elseif transmissions < repetitions then
+                  file, transmission + 1, queue.dev)
+      elseif transmission < iterations then
          pcapFile:reset()
          log:info("%s exhausted, starting %d (of %d transmissions) on %s",
-                  file, transmissions + 1, repetitions, queue.dev)
+                  file, transmission + 1, iterations, queue.dev)
       else
          break
       end
@@ -131,12 +135,28 @@ function replayonce(queue,
                     multiplier,
                     bufs,
                     pcapFile,
-                    linkSpeed)
+                    linkSpeed,
+                    transmission)
+   local seqackincrement = 13000
+   local uint32max = 0xffffffff
    local prev = 0
 
    while mg.running() do
       local n = pcapFile:read(bufs)
+
       if n > 0 then
+         -- Fudge sequence and acknowlegement numbers.
+         for i = 1, n do
+            local buf = bufs[i]
+            local pkt = buf:getTcp4Packet()
+            if pkt.ip4:getProtocol() == ip4.PROTO_TCP then
+               pkt.tcp.seq = hton((pkt.tcp:getSeqNumber() + transmission * seqackincrement)
+                     % uint32max)
+               pkt.tcp.ack = hton((pkt.tcp:getAckNumber() + transmission * seqackincrement)
+                     % uint32max)
+            end
+         end
+
          if rateLimiter ~= nil then
             if prev == 0 then
                prev = bufs.array[0].udata64
