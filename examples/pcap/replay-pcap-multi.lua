@@ -18,10 +18,6 @@ local log = require "log"
 local pcap = require "pcap"
 local limiter = require "software-ratecontrol"
 
-local ip4 = require "proto.ip4"
-local tcp = require "proto.tcp"
-local ntoh, hton = ntoh, hton
-
 function configure(parser)
    parser:option("--dev", "Device to use.")
       :args(1)
@@ -50,6 +46,12 @@ function configure(parser)
                  "Send pcap files this number of times")
       :default(1)
       :convert(tonumber)
+   parser:flag("-f --fudge-high-port",
+               "Increment higher port (src or dst) in tcp/ip packets on"
+                  .. " repeated transmissions")
+      :default(1)
+      :convert(tonumber)
+      :target("fudgehighport")
    local args = parser:parse()
    return args
 end
@@ -74,6 +76,7 @@ function master(args)
                                 args.files[ii],
                                 args.loop,
                                 args.iterations,
+                                args.fudgehighport,
                                 rateLimiters[ii],
                                 args.rateMultiplier,
                                 args.bufferFlushTime))
@@ -90,6 +93,7 @@ function replay(queue,
                 file,
                 loop,
                 iterations,
+                fudgehighport,
                 rateLimiter,
                 multiplier,
                 sleepTime)
@@ -102,7 +106,7 @@ function replay(queue,
    log:info("Link speed %s for %s", linkSpeed, queue.dev)
 
    while mg.running() do
-      replayonce(queue, file, rateLimiter, multiplier, bufs, pcapFile, linkSpeed, transmission)
+      replayonce(queue, file, fudgehighport, rateLimiter, multiplier, bufs, pcapFile, linkSpeed, transmission)
 
       transmission = transmission + 1
       if loop then
@@ -130,6 +134,7 @@ end
 
 function replayonce(queue,
                     file,
+                    fudgehighport,
                     rateLimiter,
                     multiplier,
                     bufs,
@@ -143,21 +148,30 @@ function replayonce(queue,
       local n = pcapFile:read(bufs)
 
       if n > 0 then
-         -- Fudge ephemeral port.
-         for i = 1, n do
-            local buf = bufs[i]
-            local pkt = buf:getTcp4Packet()
-            if pkt.ip4:getProtocol() == ip4.PROTO_TCP then
-               if pkt.tcp:getSrcPort() == 443 then
-                  pkt.tcp:setDstPort((pkt.tcp:getDstPort() - transmission)
+         if fudgehighport and transmission > 0 then
+            -- Fudge higher port on retransmissions.
+            for i = 1, n do
+               local buf = bufs[i]
+               local pkt = buf:getEthernetPacket()
+               local ethtype = pkt.eth:resolveNextHeader()
+               if ethtype ~= 'ip4' and ethtype ~= 'ip6' then
+                  -- Only want to fudge port on ip packets.
+                  break
+               end
+               pkt = buf:getTcpPacket(ethtype == 'ip4')
+               if pkt[ethtype]:resolveNextHeader() ~= 'tcp' then
+                  -- Only want to fudge port on tcp packets.
+                  break
+               end
+               if pkt.tcp:getSrcPort() < pkt.tcp:getDstPort() then
+                  pkt.tcp:setDstPort((pkt.tcp:getDstPort() + transmission)
                         % uint16max)
-               elseif pkt.tcp:getDstPort() == 443 then
-                  pkt.tcp:setSrcPort((pkt.tcp:getSrcPort() - transmission)
+               elseif pkt.tcp:getDstPort() < pkt.tcp:getSrcPort() then
+                  pkt.tcp:setSrcPort((pkt.tcp:getSrcPort() + transmission)
                         % uint16max)
                end
+               buf:offloadTcpChecksum()
             end
-            -- print(pkt.tcp:getString())
-            buf:offloadTcpChecksum()
          end
 
          if rateLimiter ~= nil then
