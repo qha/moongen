@@ -19,8 +19,6 @@ local pcap = require "pcap"
 local limiter = require "software-ratecontrol"
 
 local ip4 = require "proto.ip4"
-local tcp = require "proto.tcp"
-local ntoh, hton = ntoh, hton
 
 function configure(parser)
    parser:option("--dev", "Device to use.")
@@ -50,7 +48,15 @@ function configure(parser)
                  "Send pcap files this number of times")
       :default(1)
       :convert(tonumber)
+   parser:option("-f --fudge-other-port",
+                 "Increment other port in tcp/ip4 packets where one"
+                    .. " is named here on repeated transmissions")
+      :convert(tonumber)
+      :target("fudgeotherport")
    local args = parser:parse()
+   if #args.devs ~= #args.files then
+      parser:error("Must name as many devs as files")
+   end
    return args
 end
 
@@ -74,6 +80,7 @@ function master(args)
                                 args.files[ii],
                                 args.loop,
                                 args.iterations,
+                                args.fudgeotherport,
                                 rateLimiters[ii],
                                 args.rateMultiplier,
                                 args.bufferFlushTime))
@@ -90,6 +97,7 @@ function replay(queue,
                 file,
                 loop,
                 iterations,
+                fudgeotherport,
                 rateLimiter,
                 multiplier,
                 sleepTime)
@@ -102,7 +110,8 @@ function replay(queue,
    log:info("Link speed %s for %s", linkSpeed, queue.dev)
 
    while mg.running() do
-      replayonce(queue, file, rateLimiter, multiplier, bufs, pcapFile, linkSpeed, transmission)
+      replayonce(queue, file, fudgeotherport, rateLimiter, multiplier,
+                 bufs, pcapFile, linkSpeed, transmission)
 
       transmission = transmission + 1
       if loop then
@@ -130,6 +139,7 @@ end
 
 function replayonce(queue,
                     file,
+                    fudgeotherport,
                     rateLimiter,
                     multiplier,
                     bufs,
@@ -148,11 +158,11 @@ function replayonce(queue,
             local buf = bufs[i]
             local pkt = buf:getTcp4Packet()
             if pkt.ip4:getProtocol() == ip4.PROTO_TCP then
-               if pkt.tcp:getSrcPort() == 443 then
-                  pkt.tcp:setDstPort((pkt.tcp:getDstPort() - transmission)
+               if pkt.tcp:getSrcPort() == fudgeotherport then
+                  pkt.tcp:setDstPort((pkt.tcp:getDstPort() + transmission)
                         % uint16max)
-               elseif pkt.tcp:getDstPort() == 443 then
-                  pkt.tcp:setSrcPort((pkt.tcp:getSrcPort() - transmission)
+               elseif pkt.tcp:getDstPort() == fudgeotherport then
+                  pkt.tcp:setSrcPort((pkt.tcp:getSrcPort() + transmission)
                         % uint16max)
                end
             end
