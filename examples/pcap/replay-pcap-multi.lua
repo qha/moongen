@@ -24,9 +24,10 @@ function configure(parser)
       :count("1+")
       :convert(tonumber)
       :target("devs")
-   parser:argument("files", "Files to replay, must be supplied"
+   parser:argument("file", "Files to replay, must be supplied"
                       .. " as many times as --dev.")
       :args("1+")
+      :target("files")
    parser:option("-r --rate-multiplier",
                  "Speed up or slow down replay,"
                     .. " 1 = use intervals from files,"
@@ -46,12 +47,15 @@ function configure(parser)
                  "Send pcap files this number of times")
       :default(1)
       :convert(tonumber)
-   parser:option("-f --fudge-high-port",
-               "Increment higher port in tcp/ip packets where one"
+   parser:option("-f --fudge-other-port",
+               "Increment other port in tcp/ip packets where one"
                   .. " is named here on repeated transmissions")
       :convert(tonumber)
-      :target("fudgehighport")
+      :target("fudgeotherport")
    local args = parser:parse()
+   if #args.devs ~= #args.files then
+      parser:error("Must name as many devs as files")
+   end
    return args
 end
 
@@ -75,7 +79,7 @@ function master(args)
                                 args.files[ii],
                                 args.loop,
                                 args.iterations,
-                                args.fudgehighport,
+                                args.fudgeotherport,
                                 rateLimiters[ii],
                                 args.rateMultiplier,
                                 args.bufferFlushTime))
@@ -92,7 +96,7 @@ function replay(queue,
                 file,
                 loop,
                 iterations,
-                fudgehighport,
+                fudgeotherport,
                 rateLimiter,
                 multiplier,
                 sleepTime)
@@ -105,7 +109,7 @@ function replay(queue,
    log:info("Link speed %s for %s", linkSpeed, queue.dev)
 
    while mg.running() do
-      replayonce(queue, file, fudgehighport, rateLimiter, multiplier, bufs, pcapFile, linkSpeed, transmission)
+      replayonce(queue, file, fudgeotherport, rateLimiter, multiplier, bufs, pcapFile, linkSpeed, transmission)
 
       transmission = transmission + 1
       if loop then
@@ -133,7 +137,7 @@ end
 
 function replayonce(queue,
                     file,
-                    fudgehighport,
+                    fudgeotherport,
                     rateLimiter,
                     multiplier,
                     bufs,
@@ -147,8 +151,8 @@ function replayonce(queue,
       local n = pcapFile:read(bufs)
 
       if n > 0 then
-         if fudgehighport and transmission > 0 then
-            -- Fudge higher port on retransmissions.
+         if fudgeotherport and transmission > 0 then
+            -- Fudge other port on retransmissions.
             for i = 1, n do
                local buf = bufs[i]
                local pkt = buf:getEthernetPacket()
@@ -162,8 +166,8 @@ function replayonce(queue,
                   -- Not going to fudge port on non tcp packets.
                   break
                end
-               if pkt.tcp:getSrcPort() ~= fudgehighport
-               and pkt.tcp:getDstPort() ~= fudgehighport then
+               if pkt.tcp:getSrcPort() ~= fudgeotherport
+               and pkt.tcp:getDstPort() ~= fudgeotherport then
                   -- Not going to fudge port on this packet.
                   break
                end
