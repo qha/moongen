@@ -46,10 +46,9 @@ function configure(parser)
                  "Send pcap files this number of times")
       :default(1)
       :convert(tonumber)
-   parser:flag("-f --fudge-high-port",
-               "Increment higher port (src or dst) in tcp/ip packets on"
-                  .. " repeated transmissions")
-      :default(1)
+   parser:option("-f --fudge-high-port",
+               "Increment higher port in tcp/ip packets where one"
+                  .. " is named here on repeated transmissions")
       :convert(tonumber)
       :target("fudgehighport")
    local args = parser:parse()
@@ -155,12 +154,17 @@ function replayonce(queue,
                local pkt = buf:getEthernetPacket()
                local ethtype = pkt.eth:resolveNextHeader()
                if ethtype ~= 'ip4' and ethtype ~= 'ip6' then
-                  -- Only want to fudge port on ip packets.
+                  -- Not going to fudge port on non ip packets.
                   break
                end
                pkt = buf:getTcpPacket(ethtype == 'ip4')
                if pkt[ethtype]:resolveNextHeader() ~= 'tcp' then
-                  -- Only want to fudge port on tcp packets.
+                  -- Not going to fudge port on non tcp packets.
+                  break
+               end
+               if pkt.tcp:getSrcPort() ~= fudgehighport
+               and pkt.tcp:getDstPort() ~= fudgehighport then
+                  -- Not going to fudge port on this packet.
                   break
                end
                if pkt.tcp:getSrcPort() < pkt.tcp:getDstPort() then
