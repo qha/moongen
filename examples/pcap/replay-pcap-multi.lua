@@ -7,6 +7,10 @@
 -- Also note that you will want pcaps captured on named interfaces so
 -- that they contain link layer headers rather than pcaps captured on
 -- "any" interface with cooked link layer headers.
+--
+-- Optionally rewrite high port numbers (src or dst) in tcp/ip4
+-- packets on retransmissions to keep exercising the connection
+-- tracking in an ids under test.
 
 local table = require "table"
 
