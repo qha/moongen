@@ -56,7 +56,6 @@ function configure(parser)
    parser:flag("-f --rewrite-high-port",
                "Increment high port (src or dst) in tcp/ip4 packets "
                   .. " on repeated transmissions")
-      :convert(tonumber)
       :target("rewritehighport")
    local args = parser:parse()
    if #args.devs ~= #args.files then
