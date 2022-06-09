@@ -6,7 +6,7 @@
 --
 -- Also note that you will want pcaps captured on named interfaces so
 -- that they contain link layer headers rather than pcaps captured on
--- "any" interface with fudged link layer headers.
+-- "any" interface with cooked link layer headers.
 
 local table = require "table"
 
