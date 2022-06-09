@@ -48,11 +48,11 @@ function configure(parser)
                  "Send pcap files this number of times")
       :default(1)
       :convert(tonumber)
-   parser:option("-f --fudge-other-port",
-                 "Increment other port in tcp/ip4 packets where one"
-                    .. " is named here on repeated transmissions")
+   parser:flag("-f --fudge-high-port",
+               "Increment high port (src or dst) in tcp/ip4 packets "
+                  .. " on repeated transmissions")
       :convert(tonumber)
-      :target("fudgeotherport")
+      :target("fudgehighport")
    local args = parser:parse()
    if #args.devs ~= #args.files then
       parser:error("Must name as many devs as files")
@@ -80,7 +80,7 @@ function master(args)
                                 args.files[ii],
                                 args.loop,
                                 args.iterations,
-                                args.fudgeotherport,
+                                args.fudgehighport,
                                 rateLimiters[ii],
                                 args.rateMultiplier,
                                 args.bufferFlushTime))
@@ -97,7 +97,7 @@ function replay(queue,
                 file,
                 loop,
                 iterations,
-                fudgeotherport,
+                fudgehighport,
                 rateLimiter,
                 multiplier,
                 sleepTime)
@@ -110,7 +110,7 @@ function replay(queue,
    log:info("Link speed %s for %s", linkSpeed, queue.dev)
 
    while mg.running() do
-      replayonce(queue, file, fudgeotherport, rateLimiter, multiplier,
+      replayonce(queue, file, fudgehighport, rateLimiter, multiplier,
                  bufs, pcapFile, linkSpeed, transmission)
 
       transmission = transmission + 1
@@ -139,7 +139,7 @@ end
 
 function replayonce(queue,
                     file,
-                    fudgeotherport,
+                    fudgehighport,
                     rateLimiter,
                     multiplier,
                     bufs,
@@ -154,19 +154,21 @@ function replayonce(queue,
 
       if n > 0 then
          -- Fudge ephemeral port.
-         for i = 1, n do
-            local buf = bufs[i]
-            local pkt = buf:getTcp4Packet()
-            if pkt.ip4:getProtocol() == ip4.PROTO_TCP then
-               if pkt.tcp:getSrcPort() == fudgeotherport then
-                  pkt.tcp:setDstPort((pkt.tcp:getDstPort() + transmission)
-                        % uint16max)
-               elseif pkt.tcp:getDstPort() == fudgeotherport then
-                  pkt.tcp:setSrcPort((pkt.tcp:getSrcPort() + transmission)
-                        % uint16max)
+         if fudgehighport and transmission > 0 then
+            for i = 1, n do
+               local buf = bufs[i]
+               local pkt = buf:getTcp4Packet()
+               if pkt.ip4:getProtocol() == ip4.PROTO_TCP then
+                  if pkt.tcp:getSrcPort() < pkt.tcp:getDstPort() then
+                     pkt.tcp:setDstPort((pkt.tcp:getDstPort() + transmission)
+                           % uint16max)
+                  elseif pkt.tcp:getDstPort() < pkt.tcp:getSrcPort() then
+                     pkt.tcp:setSrcPort((pkt.tcp:getSrcPort() + transmission)
+                           % uint16max)
+                  end
                end
+               buf:offloadTcpChecksum()
             end
-            buf:offloadTcpChecksum()
          end
 
          if rateLimiter ~= nil then
