@@ -30,9 +30,10 @@ function configure(parser)
       :count("1+")
       :convert(tonumber)
       :target("devs")
-   parser:argument("files", "Files to replay, must be supplied"
+   parser:argument("file", "File to replay, must be supplied"
                       .. " as many times as --dev.")
       :args("1+")
+      :target("files")
    parser:option("-r --rate-multiplier",
                  "Speed up or slow down replay,"
                     .. " 1 = use intervals from files,"
