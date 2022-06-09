@@ -166,7 +166,6 @@ function replayonce(queue,
                         % uint16max)
                end
             end
-            -- print(pkt.tcp:getString())
             buf:offloadTcpChecksum()
          end
 
