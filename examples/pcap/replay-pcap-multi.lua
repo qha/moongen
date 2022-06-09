@@ -53,11 +53,11 @@ function configure(parser)
                  "Send pcap files this number of times")
       :default(1)
       :convert(tonumber)
-   parser:flag("-f --fudge-high-port",
+   parser:flag("-f --rewrite-high-port",
                "Increment high port (src or dst) in tcp/ip4 packets "
                   .. " on repeated transmissions")
       :convert(tonumber)
-      :target("fudgehighport")
+      :target("rewritehighport")
    local args = parser:parse()
    if #args.devs ~= #args.files then
       parser:error("Must name as many devs as files")
@@ -85,7 +85,7 @@ function master(args)
                                 args.files[ii],
                                 args.loop,
                                 args.iterations,
-                                args.fudgehighport,
+                                args.rewritehighport,
                                 rateLimiters[ii],
                                 args.rateMultiplier,
                                 args.bufferFlushTime))
@@ -102,7 +102,7 @@ function replay(queue,
                 file,
                 loop,
                 iterations,
-                fudgehighport,
+                rewritehighport,
                 rateLimiter,
                 multiplier,
                 sleepTime)
@@ -115,7 +115,7 @@ function replay(queue,
    log:info("Link speed %s for %s", linkSpeed, queue.dev)
 
    while mg.running() do
-      replayonce(queue, file, fudgehighport, rateLimiter, multiplier,
+      replayonce(queue, file, rewritehighport, rateLimiter, multiplier,
                  bufs, pcapFile, linkSpeed, transmission)
 
       transmission = transmission + 1
@@ -144,7 +144,7 @@ end
 
 function replayonce(queue,
                     file,
-                    fudgehighport,
+                    rewritehighport,
                     rateLimiter,
                     multiplier,
                     bufs,
@@ -158,8 +158,8 @@ function replayonce(queue,
       local n = pcapFile:read(bufs)
 
       if n > 0 then
-         -- Fudge ephemeral port.
-         if fudgehighport and transmission > 0 then
+         -- Rewrite ephemeral port.
+         if rewritehighport and transmission > 0 then
             for i = 1, n do
                local buf = bufs[i]
                local pkt = buf:getTcp4Packet()
