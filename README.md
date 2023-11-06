@@ -81,11 +81,13 @@ If you have secure boot enabled (by default in ubuntu 20.04 LTS), you will get a
 
 ## Dependencies
 * gcc >= 4.8
+* gcc-c++
 * make
 * cmake
 * libnuma-dev
 * kernel headers (for the DPDK igb-uio driver)
 * lspci (for `dpdk-devbind.py`)
+* kmod
 * [additional dependencies](https://github.com/libmoon/libmoon/blob/master/install-mlx.md) for Mellanox NICs
 
 Run the following command to install these on Debian/Ubuntu:
